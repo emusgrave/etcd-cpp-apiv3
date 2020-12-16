@@ -1,8 +1,13 @@
-#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/socket.h>
 #include <sys/types.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <netdb.h>
+#include <sys/socket.h>
+#endif
 
 #include "etcd/Client.hpp"
 #include "etcd/v3/Action.hpp"

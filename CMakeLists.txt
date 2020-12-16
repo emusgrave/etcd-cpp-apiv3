@@ -8,7 +8,9 @@ set(etcd-cpp-api_VERSION_MINOR 1)
 
 option(BUILD_ETCD_TESTS "Build test cases" OFF)
 
-find_library(CPPREST_LIB NAMES cpprest)
+#find_library(CPPREST_LIB NAMES cpprest)
+find_package(cpprestsdk CONFIG REQUIRED)
+set(CPPREST_LIB cpprestsdk::cpprest)
 find_path(CPPREST_INCLUDE_DIR NAMES cpprest/http_client.h)
 
 find_package(Boost REQUIRED COMPONENTS system thread locale random)
@@ -29,10 +31,29 @@ if (APPLE)
     endif()
 endif()
 find_package(OpenSSL REQUIRED)
-find_package(Protobuf REQUIRED)
 
+message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
+set(protobuf_MODULE_COMPATIBLE TRUE)
+find_package(protobuf CONFIG REQUIRED)
+
+
+message(STATUS "Using protobuf: ${PROTOBUF_VERSION}")
+message(STATUS "Using protobuf: ${Protobuf_VERSION}")
+message(STATUS "PROTOBUF_INCLUDE_DIR ${PROTOBUF_INCLUDE_DIR}")
+message(STATUS "PROTOBUF_INCLUDE_DIRS ${PROTOBUF_INCLUDE_DIRS}")
+message(STATUS "PROTOBUF_LIBRARY ${PROTOBUF_LIBRARY}")
+message(STATUS "PROTOBUF_LIBRARIES ${PROTOBUF_LIBRARIES}")
+message(STATUS "CMAKE_CURRENT_SOURCE_DIR: ${CMAKE_CURRENT_SOURCE_DIR}")
+
+find_package(gRPC CONFIG REQUIRED)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindGRPC.cmake)
-set(GRPC_LIBRARIES ${GPR_LIBRARY} ${GRPC_LIBRARY} ${GRPC_GRPC++_LIBRARY})
+set(GRPC_LIBRARIES gRPC::gpr gRPC::grpc gRPC::grpc++ gRPC::grpc++_alts)
+#set(GRPC_LIBRARIES ${GPR_LIBRARY} ${GRPC_LIBRARY} ${GRPC_GRPC++_LIBRARY})
+
+
+find_package(absl CONFIG REQUIRED)
+set(GRPC_LIBRARIES ${GRPC_LIBRARIES} absl::any absl::base)
+message(STATUS "GRPC_LIBRARIES: ${GRPC_LIBRARIES}")
 
 # will set `PROTOBUF_GENERATES`, indicates all generated .cc files, and a target `protobuf_generates`.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateProtobuf.cmake)
@@ -43,7 +64,7 @@ include_directories(SYSTEM ${CPPREST_INCLUDE_DIR}
                            ${PROTOBUF_INCLUDE_DIRS}
                            ${OPENSSL_INCLUDE_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wpedantic -Werror -Wno-string-compare -std=c++11")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
