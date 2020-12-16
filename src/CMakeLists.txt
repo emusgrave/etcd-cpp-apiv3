@@ -7,6 +7,7 @@ set_source_files_properties(${PROTOBUF_GENERATES} PROPERTIES GENERATED TRUE)
 add_library(etcd-cpp-api ${CPP_CLIENT_SRC} ${PROTOBUF_GENERATES})
 add_dependencies(etcd-cpp-api protobuf_generates)
 set_property(TARGET etcd-cpp-api PROPERTY CXX_STANDARD 11)
+set_property(TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 target_link_libraries(etcd-cpp-api PUBLIC
                       ${CPPREST_LIB}
