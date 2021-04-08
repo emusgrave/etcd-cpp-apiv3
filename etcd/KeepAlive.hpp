@@ -28,35 +28,32 @@ namespace etcd {
  * functions
  */
 class KeepAliveTimer {
-public:
-  typedef boost::function<void(boost::system::error_code, KeepAliveTimer *)>
-      handler_function;
+ public:
+  typedef boost::function<void(boost::system::error_code, KeepAliveTimer*)> handler_function;
 
-  KeepAliveTimer(boost::asio::io_context &io,
-                 boost::asio::chrono::milliseconds interval)
+  KeepAliveTimer(boost::asio::io_context& io, boost::asio::chrono::milliseconds interval)
       : interval_(interval), timer_(boost::asio::steady_timer(io, interval)) {}
   ~KeepAliveTimer() { timer_.cancel(); }
 
   void setCallback(handler_function handler) { handler_ = handler; }
 
   void start() {
-    timer_.expires_from_now(boost::asio::chrono::milliseconds(
-        50) /* expire immediately; set to interval_ otherwise*/);
+    timer_.expires_from_now(boost::asio::chrono::milliseconds(50) /* expire immediately; set to interval_ otherwise*/);
     timer_.async_wait(boost::bind(handler_, boost::asio::placeholders::error,
-                                  this)); // boost::ref(*this)));
+                                  this));  // boost::ref(*this)));
   }
 
   void repeat() {
     timer_.expires_at(timer_.expiry() + interval_);
     timer_.async_wait(boost::bind(handler_, boost::asio::placeholders::error,
-                                  this)); // boost::ref(*this)));
+                                  this));  // boost::ref(*this)));
   }
 
   void stop() { timer_.cancel(); }
 
-private:
+ private:
   boost::asio::chrono::milliseconds interval_;
-  boost::asio::steady_timer timer_;  
+  boost::asio::steady_timer timer_;
   handler_function handler_;
 };
 
@@ -65,22 +62,16 @@ private:
  * service many leases with different refresh intervals
  */
 class KeepAlive {
-  enum class Type {
-    READ = 1,
-    WRITE = 2,
-    CONNECT = 3,
-    WRITES_DONE = 4,
-    FINISH = 5
-  };
+  enum class Type { READ = 1, WRITE = 2, CONNECT = 3, WRITES_DONE = 4, FINISH = 5 };
 
-public:
+ public:
   /**
    * Create an instance of the KeepAlive service
    * Call add(leaseid, refresh_interval) to add a leaseid to be kept alive by
    * this service
    * @param client the client etcd connection to use
    */
-  KeepAlive(Client &client);
+  KeepAlive(Client& client);
 
   /**
    * Add a lease to be kept alive by this service
@@ -104,30 +95,27 @@ public:
 
   ~KeepAlive();
 
-private:
-  KeepAlive(KeepAlive const &rhs);            // prevent copying
-  KeepAlive &operator=(KeepAlive const &rhs); // prevent assignment
+ private:
+  KeepAlive(KeepAlive const& rhs);             // prevent copying
+  KeepAlive& operator=(KeepAlive const& rhs);  // prevent assignment
 
   /**
    * Moves the registered leases to a processing queue, and then resets the
    * timer and triggers the first lease renewal request
    */
-  void queueKeepAlivesCallback(const boost::system::error_code &error,
-                               KeepAliveTimer *timer);
+  void queueKeepAlivesCallback(const boost::system::error_code& error, KeepAliveTimer* timer);
 
   /**
    * Sends a keep alive for the next lease in the queue
    */
-  void sendNextKeepAlive(std::unique_ptr<grpc::ClientAsyncReaderWriter<
-                             etcdserverpb::LeaseKeepAliveRequest,
-                             etcdserverpb::LeaseKeepAliveResponse>> &stream);
+  void sendNextKeepAlive(std::unique_ptr<grpc::ClientAsyncReaderWriter<etcdserverpb::LeaseKeepAliveRequest,
+                                                                       etcdserverpb::LeaseKeepAliveResponse>>& stream);
 
   /**
    * Read the response off the stream
    */
-  void readNextMessage(std::unique_ptr<grpc::ClientAsyncReaderWriter<
-                           etcdserverpb::LeaseKeepAliveRequest,
-                           etcdserverpb::LeaseKeepAliveResponse>> &stream);
+  void readNextMessage(std::unique_ptr<grpc::ClientAsyncReaderWriter<etcdserverpb::LeaseKeepAliveRequest,
+                                                                     etcdserverpb::LeaseKeepAliveResponse>>& stream);
 
   // Boost io_context, which is responsible for doing the timer work
   boost::asio::io_context io_;
@@ -141,8 +129,7 @@ private:
   // alive
   std::map<int64_t, std::shared_ptr<KeepAliveTimer>> leases_;
   // All of the timers that are currently running
-  std::map<boost::asio::chrono::milliseconds, std::shared_ptr<KeepAliveTimer>>
-      timers_;
+  std::map<boost::asio::chrono::milliseconds, std::shared_ptr<KeepAliveTimer>> timers_;
   // The current queue of keepalives that need to be sent
   std::queue<int64_t> keepalive_queue_;
 
@@ -150,7 +137,7 @@ private:
   pplx::task<void> current_task_;
 
   // The client that we are attached to.
-  Client &client_;
+  Client& client_;
 
   // Context for the client. It could be used to convey extra information to
   // the server and/or tweak certain RPC behaviors.
@@ -164,10 +151,11 @@ private:
   // server's exposed services.
   std::unique_ptr<etcdserverpb::Lease::Stub> stub_;
 
+  bool connected_ = false;
+
   // The bidirectional, asynchronous stream for sending/receiving messages.
   std::unique_ptr<
-      grpc::ClientAsyncReaderWriter<etcdserverpb::LeaseKeepAliveRequest,
-                                    etcdserverpb::LeaseKeepAliveResponse>>
+      grpc::ClientAsyncReaderWriter<etcdserverpb::LeaseKeepAliveRequest, etcdserverpb::LeaseKeepAliveResponse>>
       stream_;
 
   // Allocated protobuf that holds the response. In real clients and servers,
@@ -179,4 +167,4 @@ private:
   // Finish status when the client is done with the stream.
   grpc::Status finish_status_ = grpc::Status::OK;
 };
-} // namespace etcd
+}  // namespace etcd

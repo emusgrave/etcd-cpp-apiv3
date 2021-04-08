@@ -3,6 +3,10 @@ file(GLOB_RECURSE PROTO_SRCS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.proto")
 set(PROTO_GEN_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gen/proto")
 file(MAKE_DIRECTORY "${PROTO_GEN_OUT_DIR}")
 
+message(STATUS "PROTO_GEN_OUT_DIR: ${PROTO_GEN_OUT_DIR}")
+message(STATUS "PROTO_SRCS: ${PROTO_SRCS}")
+message(STATUS "PROTO_GRPC_SRCS: ${PROTO_GRPC_SRCS}")
+
 # use `protobuf_generate` rather than `protobuf_generate_cpp` since we want to
 # output the generated files to source dir, rather than binary dir.
 protobuf_generate_latest(
@@ -31,6 +35,8 @@ endforeach()
 foreach(cxx_file ${PROTO_GRPC_GENERATES})
     list(APPEND PROTOBUF_GENERATE_DEPS ${cxx_file})
 endforeach()
+
+message(STATUS "PROTO_GENERATES_SRCS: ${PROTO_GENERATES_SRCS}")
 
 set(PROTOBUF_GENERATES ${PROTO_GENERATES_SRCS} ${PROTO_GRPC_GENERATES_SRCS})
 set(PROTOBUF_GENERATES ${PROTOBUF_GENERATES} PARENT_SCOPE)

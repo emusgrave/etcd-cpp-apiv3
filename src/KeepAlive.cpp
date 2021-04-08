@@ -8,27 +8,23 @@
 #include "etcd/v3/AsyncLeaseKeepAliveAction.hpp"
 #include "etcd/v3/AsyncLeaseRevokeAction.hpp"
 
-etcd::KeepAlive::KeepAlive(Client &client)
-    : client_(client) { // , strand_(boost::asio::make_strand(io_)) {
+etcd::KeepAlive::KeepAlive(Client& client) : client_(client) {  // , strand_(boost::asio::make_strand(io_)) {
   stub_ = etcdserverpb::Lease::NewStub(client.channel);
 
   // Open the grpc bidi stream
-  stream_ = stub_->AsyncLeaseKeepAlive(&context_, &cq_,
-                                       reinterpret_cast<void *>(Type::CONNECT));
+  stream_ = stub_->AsyncLeaseKeepAlive(&context_, &cq_, reinterpret_cast<void*>(Type::CONNECT));
 
   // Start up the long-running task that will manage the stream
   current_task_ = pplx::task<void>([this]() {
     // Keep the io context running even without any work (otherwise it exits
     // immediately before any timers are started)
-    boost::asio::executor_work_guard<decltype(io_.get_executor())> work{
-        io_.get_executor()};
+    boost::asio::executor_work_guard<decltype(io_.get_executor())> work{io_.get_executor()};
     // spin up a thread that runs the boost io_context for our timer
-    t_ = std::unique_ptr<boost::thread>(
-        new boost::thread(boost::bind(&boost::asio::io_context::run, &io_)));
+    t_ = std::unique_ptr<boost::thread>(new boost::thread(boost::bind(&boost::asio::io_context::run, &io_)));
 
     bool shutdown = false;
     while (!shutdown) {
-      void *got_tag;
+      void* got_tag;
       bool ok = false;
 // Block until the next result is available in the completion queue
 // "cq". The return value of Next should always be checked. This
@@ -51,65 +47,68 @@ etcd::KeepAlive::KeepAlive(Client &client)
       // of.
       if (ok) {
 #if DEBUG
-        std::cout << std::endl
-                  << "**** Processing completion queue tag " << got_tag
-                  << std::endl;
+        std::cout << std::endl << "**** Processing completion queue tag " << got_tag << std::endl;
 #endif
         switch (static_cast<Type>(reinterpret_cast<int64_t>(got_tag))) {
-        case Type::READ:
+          case Type::READ:
 #if DEBUG
-          std::cout << "Read a new message, sending next." << std::endl;
+            std::cout << "Read a new message, sending next." << std::endl;
 #endif
-          sendNextKeepAlive(stream_);
-          break;
-        case Type::WRITE:
+            sendNextKeepAlive(stream_);
+            break;
+          case Type::WRITE:
 #if DEBUG
-          std::cout << "Sent message (async), attempting to read response."
-                    << std::endl;
+            std::cout << "Sent message (async), attempting to read response." << std::endl;
 #endif
-          readNextMessage(stream_);
-          break;
-        case Type::CONNECT:
+            readNextMessage(stream_);
+            break;
+          case Type::CONNECT:
 #if DEBUG
-          std::cout << "Server connected." << std::endl;
+            std::cout << "Server connected." << std::endl;
 #endif
-          break;
-        case Type::WRITES_DONE:
+            connected_ = true;
+            break;
+          case Type::WRITES_DONE:
 #if DEBUG
-          std::cout << "Server disconnecting." << std::endl;
+            std::cout << "Server disconnecting." << std::endl;
 #endif
-          stream_->Finish(&finish_status_,
-                          reinterpret_cast<void *>(Type::FINISH));
-          break;
-        case Type::FINISH:
+            if (connected_) {
+              connected_ = false;
+              stream_->Finish(&finish_status_, reinterpret_cast<void*>(Type::FINISH));
+            } else {
+              // Try to do shutdown here since the stream never connected
+              context_.TryCancel();
+              cq_.Shutdown();
+              io_.stop();
+              shutdown = true;
+            }            
+            break;
+          case Type::FINISH:
 #if DEBUG
-          std::cout << "Client finish; status = "
-                    << (finish_status_.ok() ? "ok" : "cancelled") << std::endl;
+            std::cout << "Client finish; status = " << (finish_status_.ok() ? "ok" : "cancelled") << std::endl;
 #endif
-          context_.TryCancel();
-          cq_.Shutdown();
-          io_.stop();
+            context_.TryCancel();
+            cq_.Shutdown();
+            io_.stop();
 #if DEBUG
-          std::cout << "Cleanup complete." << std::endl;
+            std::cout << "Cleanup complete." << std::endl;
 #endif
-          shutdown = true;
-          break;
-        default:
+            shutdown = true;
+            break;
+          default:
 #if DEBUG
-          std::cerr << "Unexpected tag " << got_tag << std::endl;
+            std::cerr << "Unexpected tag " << got_tag << std::endl;
 #endif
-          break;
+            break;
         }
       }
     }
   });
 }
 
-void etcd::KeepAlive::queueKeepAlivesCallback(
-    const boost::system::error_code &error, KeepAliveTimer *timer) {
+void etcd::KeepAlive::queueKeepAlivesCallback(const boost::system::error_code& error, KeepAliveTimer* timer) {
 #if DEBUG
-  std::time_t time =
-      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   std::cout << " ** Queueing keepalives: " << std::ctime(&time);
 #endif
 
@@ -127,8 +126,7 @@ void etcd::KeepAlive::queueKeepAlivesCallback(
     for (itr = leases_.begin(); itr != leases_.end(); ++itr) {
       if (itr->second.get() == timer) {
 #if DEBUG
-        std::cout << " ** Queueing keepalive lease: " << itr->first
-                  << std::endl;
+        std::cout << " ** Queueing keepalive lease: " << itr->first << std::endl;
 #endif
         keepalive_queue_.push(itr->first);
       }
@@ -145,8 +143,7 @@ void etcd::KeepAlive::queueKeepAlivesCallback(
   sendNextKeepAlive(stream_);
 }
 
-void etcd::KeepAlive::add(int64_t leaseid,
-                          boost::asio::chrono::milliseconds refresh_interval) {
+void etcd::KeepAlive::add(int64_t leaseid, boost::asio::chrono::milliseconds refresh_interval) {
   std::lock_guard<std::mutex> lg(mutex_);
 
   // See if this lease is already being handled
@@ -169,9 +166,8 @@ void etcd::KeepAlive::add(int64_t leaseid,
     // std::cout << "No timer found with refresh interval: " <<
     // refresh_interval.count() << std::endl;
     auto timer = std::make_shared<KeepAliveTimer>(io_, refresh_interval);
-    timer->setCallback(boost::bind(&KeepAlive::queueKeepAlivesCallback, this,
-                                   boost::asio::placeholders::error,
-                                   timer.get()));
+    timer->setCallback(
+        boost::bind(&KeepAlive::queueKeepAlivesCallback, this, boost::asio::placeholders::error, timer.get()));
     timer->start();
     timers_.insert(std::make_pair(refresh_interval, timer));
     leases_.insert(std::make_pair(leaseid, timer));
@@ -189,10 +185,8 @@ void etcd::KeepAlive::remove(int64_t leaseid, bool revoke) {
       // Check if the timer has any other leases attached or if it needs to be
       // removed
       bool delete_timer = true;
-      for (auto timer_search = leases_.begin(); timer_search != leases_.end();
-           ++timer_search) {
-        if (timer_search->second == lease->second &&
-            timer_search->first != lease->first) {
+      for (auto timer_search = leases_.begin(); timer_search != leases_.end(); ++timer_search) {
+        if (timer_search->second == lease->second && timer_search->first != lease->first) {
           // Found another lease using this timer, so don't delete the timer
           delete_timer = false;
           break;
@@ -203,8 +197,7 @@ void etcd::KeepAlive::remove(int64_t leaseid, bool revoke) {
         // First make sure to stop the timer.
         lease->second->stop();
         // Find the timer in our timers_ map
-        for (auto timer_search = timers_.begin(); timer_search != timers_.end();
-             ++timer_search) {
+        for (auto timer_search = timers_.begin(); timer_search != timers_.end(); ++timer_search) {
           if (timer_search->second == lease->second) {
             timers_.erase(timer_search);
             break;
@@ -213,7 +206,7 @@ void etcd::KeepAlive::remove(int64_t leaseid, bool revoke) {
       }
       // Finally, we can erase the lease entry
       leases_.erase(leaseid);
-    } // else = no record of the lease
+    }  // else = no record of the lease
   }
 
   if (revoke) {
@@ -222,10 +215,8 @@ void etcd::KeepAlive::remove(int64_t leaseid, bool revoke) {
 }
 
 void etcd::KeepAlive::sendNextKeepAlive(
-    std::unique_ptr<
-        grpc::ClientAsyncReaderWriter<etcdserverpb::LeaseKeepAliveRequest,
-                                      etcdserverpb::LeaseKeepAliveResponse>>
-        &stream) {
+    std::unique_ptr<grpc::ClientAsyncReaderWriter<etcdserverpb::LeaseKeepAliveRequest,
+                                                  etcdserverpb::LeaseKeepAliveResponse>>& stream) {
   LeaseKeepAliveRequest request;
 
   {
@@ -243,16 +234,14 @@ void etcd::KeepAlive::sendNextKeepAlive(
     }
   }
 
-  stream->Write(request, reinterpret_cast<void *>(Type::WRITE));
+  stream->Write(request, reinterpret_cast<void*>(Type::WRITE));
 }
 
 void etcd::KeepAlive::readNextMessage(
-    std::unique_ptr<
-        grpc::ClientAsyncReaderWriter<etcdserverpb::LeaseKeepAliveRequest,
-                                      etcdserverpb::LeaseKeepAliveResponse>>
-        &stream) {
+    std::unique_ptr<grpc::ClientAsyncReaderWriter<etcdserverpb::LeaseKeepAliveRequest,
+                                                  etcdserverpb::LeaseKeepAliveResponse>>& stream) {
   // std::cout << " ** Got response: " << response_.ttl() << std::endl;
-  stream->Read(&response_, reinterpret_cast<void *>(Type::READ));
+  stream->Read(&response_, reinterpret_cast<void*>(Type::READ));
 }
 
 void etcd::KeepAlive::removeAll(bool revoke) {
@@ -278,9 +267,23 @@ void etcd::KeepAlive::removeAll(bool revoke) {
 
 etcd::KeepAlive::~KeepAlive() {
   removeAll();
-  stream_->WritesDone(reinterpret_cast<void *>(Type::WRITES_DONE));
+  if (connected_) {
+    stream_->WritesDone(reinterpret_cast<void*>(Type::WRITES_DONE));
+  } else {
+    cq_.Shutdown();
+  }  
+  current_task_.wait();
+
+  
+  /*context_.TryCancel();
+  cq_.Shutdown();  
+  stream_.release();
+
+  io_.stop();*/
+
   try {
+    /*t_->interrupt();*/
     t_->join();
-  } catch (const boost::thread_interrupted &) { /* suppress */
+  } catch (const boost::thread_interrupted&) { /* suppress */
   };
 }
